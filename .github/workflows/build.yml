@@ -1,0 +1,94 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PATH: C:/ProxSpace/msys2/mingw64/bin;C:/ProxSpace/msys2/usr/local/bin;C:/ProxSpace/msys2/usr/bin;C:/ProxSpace/msys2/bin
+      MSYSTEM: MINGW64
+      PYTHONHOME: /mingw64
+
+    steps:
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: C:\ProxSpace
+          key: ProxSpace
+
+      - name: ProxSpace download
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Invoke-WebRequest "https://github.com/Gator96100/ProxSpace/archive/master.zip" -outfile "C:\proxspace.zip" -Passthru
+
+      - name: ProxSpace extract
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Expand-Archive -LiteralPath "C:\proxspace.zip" -DestinationPath "C:\"
+
+      - name: ProxSpace delete zip
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Remove-Item "C:\proxspace.zip"
+
+      - name: ProxSpace rename folder
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Get-ChildItem -Path "C:\ProxSpace-*" | Rename-Item -NewName (Split-Path C:\ProxSpace -Leaf)
+
+      - name: ProxSpace version
+        run: |
+          $psversion = (Select-String -Pattern 'PSVERSION=' -SimpleMatch -Path "C:\ProxSpace\setup\09-proxspace_setup.post").Line.Split("""")[1]
+          Write-Host "ProxSpace version: $psversion"
+
+      - name: ProxSpace initial startup
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: C:\ProxSpace
+        run: ./runme64.bat -c "exit"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RfidResearchGroup/proxmark3
+
+      - name: Build mfc_card_only
+        run: make -j $([System.Environment]::ProcessorCount + 1) V=1 mfc_card_only
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: tools/mfc/card_only/*.exe
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Publish release
+        id: publish
+        uses: softprops/action-gh-release@v1
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            *
+
+      - name: Attest Release Files
+        id: attest
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            *
