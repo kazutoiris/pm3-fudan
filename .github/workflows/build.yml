@@ -56,6 +56,10 @@ jobs:
           repository: RfidResearchGroup/proxmark3
 
       - name: Build mfc_card_only
+        env: 
+          CFLAGS: -static
+          CXXFLAGS: -static
+          LDFLAGS: -static
         run: make -j $([System.Environment]::ProcessorCount + 1) V=1 mfc_card_only
 
       - name: Upload artifact
